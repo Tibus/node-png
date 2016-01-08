@@ -3,7 +3,7 @@
 #include "common.h"
 #include "png_encoder.h"
 #include "png.h"
-#include "buffer_compat.h"
+#include <node_buffer.h>
 
 using namespace v8;
 using namespace node;
@@ -11,13 +11,14 @@ using namespace node;
 void
 Png::Initialize(Handle<Object> target)
 {
-    HandleScope scope;
+    Isolate *isolate = Isolate::GetCurrent();
+    HandleScope scope(isolate);
 
-    Local<FunctionTemplate> t = FunctionTemplate::New(New);
+    Local<FunctionTemplate> t = FunctionTemplate::New(isolate, New);
     t->InstanceTemplate()->SetInternalFieldCount(1);
     NODE_SET_PROTOTYPE_METHOD(t, "encode", PngEncodeAsync);
     NODE_SET_PROTOTYPE_METHOD(t, "encodeSync", PngEncodeSync);
-    target->Set(String::NewSymbol("Png"), t->GetFunction());
+    target->Set(String::NewFromUtf8(isolate, "Png"), t->GetFunction());
 }
 
 Png::Png(int wwidth, int hheight, buffer_type bbuf_type, int bbits) :
@@ -26,50 +27,68 @@ Png::Png(int wwidth, int hheight, buffer_type bbuf_type, int bbits) :
 Handle<Value>
 Png::PngEncodeSync()
 {
-    HandleScope scope;
+    Isolate *isolate = Isolate::GetCurrent();
+    HandleScope scope(isolate);
 
-    Local<Value> buf_val = handle_->GetHiddenValue(String::New("buffer"));
+    Local<Value> buf_val = Local<Object>::New(isolate, persistent())->GetHiddenValue(String::NewFromUtf8(isolate, "buffer"));
 
-    char *buf_data = BufferData(buf_val->ToObject());
+    char *buf_data = node::Buffer::Data(buf_val->ToObject());
 
     try {
         PngEncoder encoder((unsigned char*)buf_data, width, height, buf_type, bits);
         encoder.encode();
         int png_len = encoder.get_png_len();
-        Buffer *retbuf = Buffer::New(png_len);
-        memcpy(BufferData(retbuf), encoder.get_png(), png_len);
-        return scope.Close(retbuf->handle_);
+        Local<Object> retbuf = Buffer::New(isolate, png_len);
+        memcpy(node::Buffer::Data(retbuf), encoder.get_png(), png_len);
+        return retbuf;
     }
     catch (const char *err) {
         return VException(err);
     }
 }
 
-Handle<Value>
-Png::New(const Arguments &args)
+void
+Png::New(const v8::FunctionCallbackInfo<v8::Value> &args)
 {
-    HandleScope scope;
+    Isolate *isolate = Isolate::GetCurrent();
+    HandleScope scope(isolate);
 
     if (args.Length() < 3)
-        return VException("At least three arguments required - data buffer, width, height, [and input buffer type]");
+    {
+      isolate->ThrowException(VException("Requires three arguments"));
+      return;
+    }
     if (!Buffer::HasInstance(args[0]))
-        return VException("First argument must be Buffer.");
+    {
+      isolate->ThrowException(VException("First argument must be a buffer."));
+      return;
+    }
     if (!args[1]->IsInt32())
-        return VException("Second argument must be integer width.");
+    {
+      isolate->ThrowException(VException("Second argument must be integer height."));
+      return;
+    }
     if (!args[2]->IsInt32())
-        return VException("Third argument must be integer height.");
+    {
+      isolate->ThrowException(VException("Third argument must be integer height."));
+      return;
+    }
 
     buffer_type buf_type = BUF_RGB;
     if (args.Length() >= 4) {
         if (!args[3]->IsString())
-            return VException("Fourth argument must be 'gray', 'rgb', 'bgr', 'rgba' or 'bgra'.");
+        {
+          isolate->ThrowException(VException("Fourth argument must be 'gray', 'rgb', 'bgr', 'rgba' or 'bgra'."));
+          return;
+        }
 
-        String::AsciiValue bts(args[3]->ToString());
+        String::Utf8Value bts(args[3]->ToString());
         if (!(str_eq(*bts, "rgb") || str_eq(*bts, "bgr") ||
             str_eq(*bts, "rgba") || str_eq(*bts, "bgra") ||
             str_eq(*bts, "gray")))
         {
-            return VException("Fourth argument must be 'gray', 'rgb', 'bgr', 'rgba' or 'bgra'.");
+            isolate->ThrowException(VException("Fourth argument must be 'gray', 'rgb', 'bgr', 'rgba' or 'bgra'."));
+            return;
         }
         
         if (str_eq(*bts, "rgb"))
@@ -83,23 +102,35 @@ Png::New(const Arguments &args)
         else if (str_eq(*bts, "gray"))
             buf_type = BUF_GRAY;
         else
-            return VException("Fourth argument wasn't 'gray', 'rgb', 'bgr', 'rgba' or 'bgra'.");
+        {
+          isolate->ThrowException(VException("Fourth argument wasn't 'gray', 'rgb', 'bgr', 'rgba' or 'bgra'."));
+          return;
+        }
     }
 
     int bits = 8;
 
     if (args.Length() >= 5) {
         if(buf_type != BUF_GRAY)
-            return VException("Pixel bit width option only valid for \"gray\" buffer type");
+        {
+          isolate->ThrowException(VException("Pixel bit width option only valid for \"gray\" buffer type"));
+          return;
+        }
         if(!args[4]->IsInt32())
-            return VException("Fifth argument must be 8 or 16");
+        {
+          isolate->ThrowException(VException("Fifth argument must be 8 or 16"));
+          return;
+        }
 
         if(args[4]->Int32Value() == 8)
             bits = 8;
         else if (args[4]->Int32Value() == 16)
             bits = 16;
         else
-            return VException("Fifth arguments wasn't 8 or 16");
+        {
+          isolate->ThrowException(VException("Fifth arguments wasn't 8 or 16"));
+          return;
+        }
     }
 
     int w = args[1]->Int32Value();
@@ -107,25 +138,31 @@ Png::New(const Arguments &args)
 
 
     if (w < 0)
-        return VException("Width smaller than 0.");
+    {
+      isolate->ThrowException(VException("Width smaller than 0."));
+      return;
+    }
     if (h < 0)
-        return VException("Height smaller than 0.");
+    {
+      isolate->ThrowException(VException("Height smaller than 0."));
+      return;
+    }
 
     Png *png = new Png(w, h, buf_type, bits);
     png->Wrap(args.This());
 
     // Save buffer.
-    png->handle_->SetHiddenValue(String::New("buffer"), args[0]);
+    Local<Object>::New(isolate, png->persistent())->SetHiddenValue(String::NewFromUtf8(isolate, "buffer"), args[0]);
 
-    return args.This();
+    args.GetReturnValue().Set(args.This());
 }
 
-Handle<Value>
-Png::PngEncodeSync(const Arguments &args)
+void Png::PngEncodeSync(const v8::FunctionCallbackInfo<v8::Value> &args)
 {
-    HandleScope scope;
+    Isolate *isolate = Isolate::GetCurrent();
+    HandleScope scope(isolate);
     Png *png = ObjectWrap::Unwrap<Png>(args.This());
-    return scope.Close(png->PngEncodeSync());
+    args.GetReturnValue().Set(png->PngEncodeSync());
 }
 
 void
@@ -155,7 +192,8 @@ Png::UV_PngEncode(uv_work_t* req)
 void 
 Png::UV_PngEncodeAfter(uv_work_t *req)
 {
-    HandleScope scope;
+    Isolate *isolate = Isolate::GetCurrent();
+    HandleScope scope(isolate);
 
     encode_request *enc_req = (encode_request *)req->data;
     delete req;
@@ -163,24 +201,24 @@ Png::UV_PngEncodeAfter(uv_work_t *req)
     Handle<Value> argv[2];
 
     if (enc_req->error) {
-        argv[0] = Undefined();
+        argv[0] = Undefined(isolate);
         argv[1] = ErrorException(enc_req->error);
     }
     else {
-        Buffer *buf = Buffer::New(enc_req->png_len);
-        memcpy(BufferData(buf), enc_req->png, enc_req->png_len);
-        argv[0] = buf->handle_;
-        argv[1] = Undefined();
+        Local<Object> buf = Buffer::New(isolate, enc_req->png_len);
+        memcpy(node::Buffer::Data(buf), enc_req->png, enc_req->png_len);
+        argv[0] = buf;
+        argv[1] = Undefined(isolate);
     }
 
     TryCatch try_catch; // don't quite see the necessity of this
 
-    enc_req->callback->Call(Context::GetCurrent()->Global(), 2, argv);
+    Local<Function>::New(isolate, enc_req->callback)->Call(isolate->GetCurrentContext()->Global(), 2, argv);
 
     if (try_catch.HasCaught())
         FatalException(try_catch);
 
-    enc_req->callback.Dispose();
+    enc_req->callback.Reset();
     free(enc_req->png);
     free(enc_req->error);
 
@@ -188,25 +226,34 @@ Png::UV_PngEncodeAfter(uv_work_t *req)
     free(enc_req);
 }
 
-Handle<Value>
-Png::PngEncodeAsync(const Arguments &args)
+void
+Png::PngEncodeAsync(const v8::FunctionCallbackInfo<v8::Value> &args)
 {
-    HandleScope scope;
+    Isolate *isolate = Isolate::GetCurrent();
+    HandleScope scope(isolate);
 
     if (args.Length() != 1)
-        return VException("One argument required - callback function.");
+    {
+      isolate->ThrowException(VException("One argument required - callback function."));
+      return;
+    }
 
     if (!args[0]->IsFunction())
-        return VException("First argument must be a function.");
+    {
+      isolate->ThrowException(VException("First argument must be a function."));
+      return;
+    }
 
-    Local<Function> callback = Local<Function>::Cast(args[0]);
     Png *png = ObjectWrap::Unwrap<Png>(args.This());
 
     encode_request *enc_req = (encode_request *)malloc(sizeof(*enc_req));
     if (!enc_req)
-        return VException("malloc in Png::PngEncodeAsync failed.");
+    {
+      isolate->ThrowException(VException("malloc in Png::PngEncodeAsync failed."));
+      return;
+    }
 
-    enc_req->callback = Persistent<Function>::New(callback);
+    enc_req->callback.Reset(isolate, args[0].As<Function>());
     enc_req->png_obj = png;
     enc_req->png = NULL;
     enc_req->png_len = 0;
@@ -214,9 +261,9 @@ Png::PngEncodeAsync(const Arguments &args)
 
     // We need to pull out the buffer data before
     // we go to the thread pool.
-    Local<Value> buf_val = png->handle_->GetHiddenValue(String::New("buffer"));
+    Local<Value> buf_val = Local<Object>::New(isolate, png->persistent())->GetHiddenValue(String::NewFromUtf8(isolate, "buffer"));
 
-    enc_req->buf_data = BufferData(buf_val->ToObject());
+    enc_req->buf_data = node::Buffer::Data(buf_val->ToObject());
 
 
     uv_work_t* req = new uv_work_t;
@@ -224,8 +271,6 @@ Png::PngEncodeAsync(const Arguments &args)
     uv_queue_work(uv_default_loop(), req, UV_PngEncode, (uv_after_work_cb)UV_PngEncodeAfter);
 
     png->Ref();
-
-    return Undefined();
 }
 
 NODE_MODULE(png, Png::Initialize)
