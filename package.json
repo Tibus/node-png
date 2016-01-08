@@ -22,7 +22,7 @@
    }, 
    "repository": {
        "type": "git",
-       "url": "http://github.com/pkrumins/node-png.git" 
+       "url": "http://github.com/kipr/node-png.git" 
    }, 
    "directories": {
        "examples": "examples",
