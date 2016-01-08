@@ -38,7 +38,7 @@ Png::PngEncodeSync()
         PngEncoder encoder((unsigned char*)buf_data, width, height, buf_type, bits);
         encoder.encode();
         int png_len = encoder.get_png_len();
-        Local<Object> retbuf = Buffer::New(isolate, png_len);
+        Local<Object> retbuf = Buffer::New(isolate, png_len).ToLocalChecked();
         memcpy(node::Buffer::Data(retbuf), encoder.get_png(), png_len);
         return retbuf;
     }
@@ -205,7 +205,7 @@ Png::UV_PngEncodeAfter(uv_work_t *req)
         argv[1] = ErrorException(enc_req->error);
     }
     else {
-        Local<Object> buf = Buffer::New(isolate, enc_req->png_len);
+        Local<Object> buf = Buffer::New(isolate, enc_req->png_len).ToLocalChecked();
         memcpy(node::Buffer::Data(buf), enc_req->png, enc_req->png_len);
         argv[0] = buf;
         argv[1] = Undefined(isolate);
