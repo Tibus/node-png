@@ -223,7 +223,7 @@ Png::UV_PngEncodeAfter(uv_work_t *req)
     free(enc_req->error);
 
     ((Png *)enc_req->png_obj)->Unref();
-    free(enc_req);
+    delete enc_req;
 }
 
 void
@@ -246,7 +246,7 @@ Png::PngEncodeAsync(const v8::FunctionCallbackInfo<v8::Value> &args)
 
     Png *png = ObjectWrap::Unwrap<Png>(args.This());
 
-    encode_request *enc_req = (encode_request *)malloc(sizeof(*enc_req));
+    encode_request *enc_req = new encode_request();
     if (!enc_req)
     {
       isolate->ThrowException(VException("malloc in Png::PngEncodeAsync failed."));
