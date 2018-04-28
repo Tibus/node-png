@@ -8,6 +8,31 @@
 using namespace v8;
 using namespace node;
 
+v8::Local<v8::Value> GetHiddenValue(v8::Isolate* isolate,
+                                    v8::Local<v8::Object> object,
+                                    v8::Local<v8::String> key) {
+  v8::Local<v8::Context> context = isolate->GetCurrentContext();
+  v8::Local<v8::Private> privateKey = v8::Private::ForApi(isolate, key);
+  v8::Local<v8::Value> value;
+  v8::Maybe<bool> result = object->HasPrivate(context, privateKey);
+  if (!(result.IsJust() && result.FromJust()))
+    return v8::Local<v8::Value>();
+  if (object->GetPrivate(context, privateKey).ToLocal(&value))
+    return value;
+  return v8::Local<v8::Value>();
+}
+
+void SetHiddenValue(v8::Isolate* isolate,
+                    v8::Local<v8::Object> object,
+                    v8::Local<v8::String> key,
+                    v8::Local<v8::Value> value) {
+  if (value.IsEmpty())
+    return;
+  v8::Local<v8::Context> context = isolate->GetCurrentContext();
+  v8::Local<v8::Private> privateKey = v8::Private::ForApi(isolate, key);
+  object->SetPrivate(context, privateKey, value);
+}
+
 void
 Png::Initialize(Handle<Object> target)
 {
@@ -30,7 +55,7 @@ Png::PngEncodeSync()
     Isolate *isolate = Isolate::GetCurrent();
     HandleScope scope(isolate);
 
-    Local<Value> buf_val = Local<Object>::New(isolate, persistent())->GetHiddenValue(String::NewFromUtf8(isolate, "buffer"));
+    Local<Value> buf_val = GetHiddenValue(isolate, Local<Object>::New(isolate, persistent()),String::NewFromUtf8(isolate, "buffer"));
 
     char *buf_data = node::Buffer::Data(buf_val->ToObject());
 
@@ -152,7 +177,7 @@ Png::New(const v8::FunctionCallbackInfo<v8::Value> &args)
     png->Wrap(args.This());
 
     // Save buffer.
-    Local<Object>::New(isolate, png->persistent())->SetHiddenValue(String::NewFromUtf8(isolate, "buffer"), args[0]);
+    SetHiddenValue(isolate,Local<Object>::New(isolate, png->persistent()),String::NewFromUtf8(isolate, "buffer"), args[0]);
 
     args.GetReturnValue().Set(args.This());
 }
@@ -261,7 +286,7 @@ Png::PngEncodeAsync(const v8::FunctionCallbackInfo<v8::Value> &args)
 
     // We need to pull out the buffer data before
     // we go to the thread pool.
-    Local<Value> buf_val = Local<Object>::New(isolate, png->persistent())->GetHiddenValue(String::NewFromUtf8(isolate, "buffer"));
+    Local<Value> buf_val = GetHiddenValue(isolate,Local<Object>::New(isolate, png->persistent()),String::NewFromUtf8(isolate, "buffer"));
 
     enc_req->buf_data = node::Buffer::Data(buf_val->ToObject());
 
