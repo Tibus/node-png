@@ -29,6 +29,7 @@ struct encode_request {
     void *png_obj;
     char *png;
     int png_len;
+    v8::Persistent<v8::String> url;
     char *error;
     char *buf_data;
 };

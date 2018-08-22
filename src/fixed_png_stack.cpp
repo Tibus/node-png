@@ -4,9 +4,13 @@
 #include "png_encoder.h"
 #include "fixed_png_stack.h"
 #include <node_buffer.h>
+#include <iostream>
+#include <fstream>
+#include <sstream>
 
 using namespace v8; 
 using namespace node;
+using namespace std;
 
 void
 FixedPngStack::Initialize(Handle<Object> target)
@@ -19,6 +23,7 @@ FixedPngStack::Initialize(Handle<Object> target)
     NODE_SET_PROTOTYPE_METHOD(t, "push", Push);
     NODE_SET_PROTOTYPE_METHOD(t, "encode", PngEncodeAsync);
     NODE_SET_PROTOTYPE_METHOD(t, "encodeSync", PngEncodeSync);
+    NODE_SET_PROTOTYPE_METHOD(t, "encodeAndSave", PngEncodeAndSaveAsync);
     target->Set(String::NewFromUtf8(isolate, "FixedPngStack"), t->GetFunction());
 }
 
@@ -359,6 +364,112 @@ FixedPngStack::PngEncodeAsync(const v8::FunctionCallbackInfo<v8::Value> &args)
     uv_work_t* req = new uv_work_t;
     req->data = enc_req;
     uv_queue_work(uv_default_loop(), req, UV_PngEncode, (uv_after_work_cb)UV_PngEncodeAfter);
+
+    png->Ref();
+}
+
+
+void 
+FixedPngStack::UV_PngEncodeSaveAfter(uv_work_t *req)
+{
+    Isolate *isolate = Isolate::GetCurrent();
+    HandleScope scope(isolate);
+
+    encode_request *enc_req = (encode_request *)req->data;
+    delete req;
+
+    Handle<Value> argv[1];
+
+    Local<Object> buf = Buffer::New(isolate, enc_req->png_len).ToLocalChecked();
+    memcpy(node::Buffer::Data(buf), enc_req->png, enc_req->png_len);
+
+    if (enc_req->error) {
+        argv[0] = ErrorException(enc_req->error);
+    }
+    else {
+        argv[0] = Undefined(isolate);
+    }
+
+    String::Utf8Value url(Local<String>::New(isolate, enc_req->url));    
+    ofstream outfile;
+    outfile.open (*url, std::ios::binary);
+    //outfile.open(*url, std::ios::binary);
+    outfile.write (enc_req->png, enc_req->png_len);
+    outfile.close();
+
+    TryCatch try_catch; // don't quite see the necessity of this
+
+    Local<Function>::New(isolate, enc_req->callback)->Call(isolate->GetCurrentContext()->Global(), 1, argv);
+
+    if (try_catch.HasCaught())
+        FatalException(try_catch);
+
+    enc_req->callback.Reset();
+    free(enc_req->png);
+    free(enc_req->error);
+
+    ((FixedPngStack *)enc_req->png_obj)->Unref();
+    delete enc_req;
+}
+
+const char* ToCString(Local<String> str) {
+  String::Utf8Value value(str);
+  return *value ? *value : "<string conversion failed>";
+}
+
+void
+FixedPngStack::PngEncodeAndSaveAsync(const v8::FunctionCallbackInfo<v8::Value> &args)
+{
+    Isolate *isolate = Isolate::GetCurrent();
+    HandleScope scope(isolate);
+
+    if (args.Length() != 2)
+    {
+      isolate->ThrowException(VException("One argument required - callback function."));
+      return;
+    }
+
+    if (!args[0]->IsString())
+    {
+        isolate->ThrowException(VException("Fourth argument must be 'gray', 'rgb', 'bgr', 'rgba' or 'bgra'."));
+        return;
+    }
+
+    if (!args[1]->IsFunction())
+    {
+      isolate->ThrowException(VException("First argument must be a function."));
+      return;
+    }
+
+    FixedPngStack *png = ObjectWrap::Unwrap<FixedPngStack>(args.This());
+
+    encode_request *enc_req = new encode_request();
+    if (!enc_req)
+    {
+      isolate->ThrowException(VException("malloc in FixedPngStack::PngEncodeAsync failed."));
+      return;
+    }
+    
+    
+    // const char* url = ToCString(args[0]);
+
+    enc_req->callback.Reset(isolate, args[1].As<Function>());
+    enc_req->png_obj = png;
+    enc_req->png = NULL;
+    enc_req->url.Reset(isolate, args[0]->ToString());
+    enc_req->png_len = 0;
+    enc_req->error = NULL;
+
+    // We need to pull out the buffer data before
+    // we go to the thread pool.
+    // Local<Value> buf_val = GetHiddenValue(isolate,Local<Object>::New(isolate, png->persistent()),String::NewFromUtf8(isolate, "buffer"));
+
+    // enc_req->buf_data = node::Buffer::Data(buf_val->ToObject());
+
+
+    uv_work_t* req = new uv_work_t;
+    req->data = enc_req;
+    uv_queue_work(uv_default_loop(), req, UV_PngEncode, (uv_after_work_cb)UV_PngEncodeSaveAfter);
 
     png->Ref();
 }

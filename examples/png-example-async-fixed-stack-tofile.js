@@ -9,17 +9,16 @@ var rgba = fs.readFileSync('./rgba-terminal.dat');
 console.time("timer");
 let numSaved = 0;
 let total = 200;
-for (var i = 0; i < total; i++){
+for (var i = 0; i < total; i++) {
     var png = new Png(1000, 1000, "rgba", 0, 0xFF);
     png.push(rgba, 50, 200, 720, 400);
-    png.encode(function (data, error) {
+    png.encodeAndSave('./png-async-fixed.png', function (error) {
         if (error) {
             console.log('Error: ' + error.toString());
             process.exit(1);
         }
-        fs.writeFileSync('./png-async-fixed.png', data.toString('binary'), 'binary');
         numSaved++;
-        if (numSaved === total-1){
+        if (numSaved === total - 1) {
         }
     });
 }
