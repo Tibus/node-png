@@ -6,7 +6,8 @@
                 "src/common.cpp",
                 "src/png_encoder.cpp",
                 "src/png.cpp",
-                "src/module.cpp",
+                "src/fixed_png_stack.cpp",
+                "src/module.cpp"
             ],
             "conditions" : [
                 [

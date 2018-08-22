@@ -297,5 +297,3 @@ Png::PngEncodeAsync(const v8::FunctionCallbackInfo<v8::Value> &args)
 
     png->Ref();
 }
-
-NODE_MODULE(png, Png::Initialize)
